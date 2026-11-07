@@ -1,6 +1,7 @@
 package com.prabhat.photocraftstudio.feature.editor
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -36,6 +38,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import androidx.compose.ui.unit.dp
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftAsyncImage
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftButton
@@ -96,10 +100,8 @@ fun EditorScreen(
     val photo = uiState.photo
     val edit = uiState.edit
     val context = LocalContext.current
-    val previewImage by produceState<ImageBitmap?>(initialValue = null, photo?.imageModel, 2048) {
-        value = withContext(Dispatchers.IO) {
-            loadPhotoBitmap(context, photo?.imageModel, 2048)?.asImageBitmap()
-        }
+    val previewBitmap by produceState<Bitmap?>(initialValue = null, photo?.imageModel) {
+        value = withContext(Dispatchers.IO) { loadPhotoBitmap(context, photo?.imageModel, 2048) }
     }
     var selectedCategory by rememberSaveable { mutableStateOf(editorCategories.first()) }
     var selectedHslChannelIndex by rememberSaveable { mutableStateOf(0) }
@@ -151,18 +153,39 @@ fun EditorScreen(
                             scaleY = rotationScale
                         },
                 ) {
-                    PhotoCraftAsyncImage(
-                        model = photo.imageModel,
-                        contentDescription = photo.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
-                        colorFilter = if (comparing) {
-                            null
-                        } else {
-                            ColorFilter.colorMatrix(edit.toComposeColorMatrix())
-                        },
-                        containerColor = Color.Black,
-                    )
+                    if (comparing) {
+                        PhotoCraftAsyncImage(
+                            model = photo.imageModel,
+                            contentDescription = photo.name,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit,
+                            colorFilter = null,
+                            containerColor = Color.Black,
+                        )
+                    } else {
+                        val adjustedBitmap = remember(photo, edit) {
+                            previewBitmap?.let { bitmap ->
+                                Bitmap.createBitmap(
+                                    bitmap,
+                                    0,
+                                    0,
+                                    bitmap.width,
+                                    bitmap.height,
+                                    Matrix().apply { setValues(edit.toColorMatrixValues()) },
+                                    true,
+                                ).also { PhotoExporter.applyRgbCurves(it, edit.curves) }
+                            }
+                        }
+                        val adjustedImage = adjustedBitmap?.asImageBitmap()
+                        if (adjustedImage != null) {
+                            Image(
+                                bitmap = adjustedImage,
+                                contentDescription = photo.name,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                    }
                 }
 
                 PhotoCraftValueLabel(

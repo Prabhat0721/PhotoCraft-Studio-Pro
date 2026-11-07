@@ -66,7 +66,7 @@ object PhotoExporter {
         }
     }
 
-    private fun applyRgbCurves(target: Bitmap, curves: RgbCurves) {
+    fun applyRgbCurves(target: Bitmap, curves: RgbCurves) {
         val width = target.width
         val height = target.height
         val pixels = IntArray(width * height)
