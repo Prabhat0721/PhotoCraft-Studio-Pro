@@ -66,6 +66,14 @@ class EditorViewModel : ViewModel() {
         it.copy(grading = it.grading.withLuminance(scope, value))
     }
 
+    fun updateGradingBlend(value: Float) = updateGesture {
+        it.copy(grading = it.grading.copy(blend = value))
+    }
+
+    fun updateCurve(channel: RgbChannel, x: Float, y: Float) = updateGesture { edit ->
+        edit.copy(curves = edit.curves.withValue(channel, x, y))
+    }
+
     fun updateEffect(adjustment: EffectAdjustment, value: Float) = updateGesture {
         it.copy(effects = it.effects.withValue(adjustment, value))
     }

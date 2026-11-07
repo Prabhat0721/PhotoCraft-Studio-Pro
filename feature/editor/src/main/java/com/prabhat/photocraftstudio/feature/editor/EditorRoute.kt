@@ -97,6 +97,8 @@ fun EditorRoute(
             onHslChange = viewModel::updateHsl,
             onGradingWheelChange = viewModel::updateGradingWheel,
             onGradingLuminanceChange = viewModel::updateGradingLuminance,
+            onBlendChange = viewModel::updateGradingBlend,
+            onCurveChange = viewModel::updateCurve,
             onEffectChange = viewModel::updateEffect,
             onDetailChange = viewModel::updateDetail,
             onGestureFinished = viewModel::finishGesture,

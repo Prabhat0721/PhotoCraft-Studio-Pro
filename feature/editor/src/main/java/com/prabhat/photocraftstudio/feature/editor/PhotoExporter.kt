@@ -11,6 +11,7 @@ import com.prabhat.photocraftstudio.core.data.PhotoItem
 import com.prabhat.photocraftstudio.core.designsystem.components.loadPhotoBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 object PhotoExporter {
 
@@ -49,6 +50,7 @@ object PhotoExporter {
                 colorFilter = ColorMatrixColorFilter(edit.toAndroidColorMatrix())
             }
             Canvas(output).drawBitmap(transformed, 0f, 0f, paint)
+            applyRgbCurves(output, edit.curves)
 
             val stream = context.contentResolver.openOutputStream(outputUri)
                 ?: error("Unable to open the export destination")
@@ -62,5 +64,30 @@ object PhotoExporter {
             output.recycle()
             source.recycle()
         }
+    }
+
+    private fun applyRgbCurves(target: Bitmap, curves: RgbCurves) {
+        val width = target.width
+        val height = target.height
+        val pixels = IntArray(width * height)
+        target.getPixels(pixels, 0, width * 4, 0, 0, width, height)
+        for (index in pixels.indices) {
+            val argb = pixels[index]
+            val r = ((argb shr 16) and 0xFF) / 255f
+            val g = ((argb shr 8) and 0xFF) / 255f
+            val b = (argb and 0xFF) / 255f
+            val redValue = curves.red.valueAt(r)
+            val greenValue = curves.green.valueAt(g)
+            val blueValue = curves.blue.valueAt(b)
+            val finalRed = curves.master.valueAt(redValue)
+            val finalGreen = curves.master.valueAt(greenValue)
+            val finalBlue = curves.master.valueAt(blueValue)
+            val alpha = (argb shr 24) and 0xFF
+            val redInt = (finalRed * 255f).roundToInt()
+            val greenInt = (finalGreen * 255f).roundToInt()
+            val blueInt = (finalBlue * 255f).roundToInt()
+            pixels[index] = (alpha shl 24) or (redInt shl 16) or (greenInt shl 8) or blueInt
+        }
+        target.setPixels(pixels, 0, width, 0, 0, width, height)
     }
 }

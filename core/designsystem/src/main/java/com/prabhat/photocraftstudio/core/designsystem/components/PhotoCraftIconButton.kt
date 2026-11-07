@@ -37,7 +37,7 @@ fun PhotoCraftIconButton(
     val resolvedContainerColor = when {
         containerColor != null -> containerColor
         !enabled -> colors.card
-        isSelected -> MaterialTheme.colorScheme.primaryContainer
+        isSelected -> colors.gold
         else -> colors.elevated
     }
     val resolvedContentColor = when {

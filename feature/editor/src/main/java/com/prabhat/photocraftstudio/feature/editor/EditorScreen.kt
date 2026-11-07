@@ -1,5 +1,6 @@
 package com.prabhat.photocraftstudio.feature.editor
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,15 +29,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftAsyncImage
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftButton
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftCategoryTabs
+import com.prabhat.photocraftstudio.core.designsystem.components.loadPhotoBitmap
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftGlyph
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftIcon
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftIconButton
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftValueLabel
@@ -50,6 +58,7 @@ private val editorCategories = listOf(
     "Color",
     "HSL",
     "Grading",
+    "Curves",
     "Effects",
     "Detail",
     "Filters",
@@ -71,6 +80,8 @@ fun EditorScreen(
     onHslChange: (HslChannel, HslComponent, Float) -> Unit,
     onGradingWheelChange: (GradingScope, Float, Float) -> Unit,
     onGradingLuminanceChange: (GradingScope, Float) -> Unit,
+    onBlendChange: (Float) -> Unit,
+    onCurveChange: (RgbChannel, Float, Float) -> Unit,
     onEffectChange: (EffectAdjustment, Float) -> Unit,
     onDetailChange: (DetailAdjustment, Float) -> Unit,
     onGestureFinished: () -> Unit,
@@ -84,6 +95,12 @@ fun EditorScreen(
     val colors = MaterialTheme.photoCraftColors
     val photo = uiState.photo
     val edit = uiState.edit
+    val context = LocalContext.current
+    val previewImage by produceState<ImageBitmap?>(initialValue = null, photo?.imageModel, 2048) {
+        value = withContext(Dispatchers.IO) {
+            loadPhotoBitmap(context, photo?.imageModel, 2048)?.asImageBitmap()
+        }
+    }
     var selectedCategory by rememberSaveable { mutableStateOf(editorCategories.first()) }
     var selectedHslChannelIndex by rememberSaveable { mutableStateOf(0) }
     var comparing by rememberSaveable(photo?.id) { mutableStateOf(false) }
@@ -227,6 +244,13 @@ fun EditorScreen(
                 grading = edit.grading,
                 onWheelChange = onGradingWheelChange,
                 onLuminanceChange = onGradingLuminanceChange,
+                onBlendChange = onBlendChange,
+                onValueChangeFinished = onGestureFinished,
+            )
+
+            "Curves" -> CurvesPanel(
+                curves = edit.curves,
+                onCurveChange = onCurveChange,
                 onValueChangeFinished = onGestureFinished,
             )
 

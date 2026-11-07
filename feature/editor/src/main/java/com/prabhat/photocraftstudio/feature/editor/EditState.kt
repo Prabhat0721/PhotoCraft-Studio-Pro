@@ -252,6 +252,7 @@ data class ColorWheelValue(
 
 data class ColorGradingAdjustments(
     val wheels: Map<GradingScope, ColorWheelValue> = emptyMap(),
+    val blend: Float = 1f,
 ) {
     val isEdited: Boolean
         get() = wheels.values.any { it.isEdited }
@@ -274,6 +275,74 @@ data class ColorGradingAdjustments(
     }
 }
 
+data class RgbCurvePoint(
+    val input: Float,
+    val output: Float,
+)
+
+data class RgbChannelCurve(
+    val points: List<RgbCurvePoint> = listOf(
+        RgbCurvePoint(0f, 0f),
+        RgbCurvePoint(1f, 1f),
+    ),
+) {
+    fun valueAt(x: Float): Float {
+        val sorted = points.sortedBy { it.input }
+        val first = sorted.firstOrNull() ?: return 0f
+        val last = sorted.lastOrNull() ?: return first.output
+        if (x <= first.input) return first.output
+        if (x >= last.input) return last.output
+        for (i in sorted.indices) {
+            if (i == sorted.lastIndex) break
+            val a = sorted[i]
+            val b = sorted[i + 1]
+            if (x in a.input..b.input) {
+                val t = if (b.input == a.input) 0f else (x - a.input) / (b.input - a.input)
+                return a.output + (b.output - a.output) * t
+            }
+        }
+        return last.output
+    }
+
+    fun withValue(x: Float, y: Float): RgbChannelCurve {
+        val next = mutableListOf<RgbCurvePoint>()
+        var replaced = false
+        for (point in points) {
+            if (!replaced && point.input == x) {
+                next.add(RgbCurvePoint(x, y))
+                replaced = true
+            } else if (point.input != x) {
+                next.add(point)
+            }
+        }
+        if (!replaced) next.add(RgbCurvePoint(x, y))
+        return copy(points = next)
+    }
+}
+
+enum class RgbChannel { Red, Green, Blue, Master }
+
+data class RgbCurves(
+    val red: RgbChannelCurve = RgbChannelCurve(),
+    val green: RgbChannelCurve = RgbChannelCurve(),
+    val blue: RgbChannelCurve = RgbChannelCurve(),
+    val master: RgbChannelCurve = RgbChannelCurve(),
+) {
+    fun valueAt(channel: RgbChannel, x: Float): Float = when (channel) {
+        RgbChannel.Red -> red.valueAt(x)
+        RgbChannel.Green -> green.valueAt(x)
+        RgbChannel.Blue -> blue.valueAt(x)
+        RgbChannel.Master -> master.valueAt(x)
+    }
+
+    fun withValue(channel: RgbChannel, x: Float, y: Float): RgbCurves = when (channel) {
+        RgbChannel.Red -> copy(red = red.withValue(x, y))
+        RgbChannel.Green -> copy(green = green.withValue(x, y))
+        RgbChannel.Blue -> copy(blue = blue.withValue(x, y))
+        RgbChannel.Master -> copy(master = master.withValue(x, y))
+    }
+}
+
 data class EditState(
     val light: LightAdjustments = LightAdjustments(),
     val color: ColorAdjustments = ColorAdjustments(),
@@ -281,6 +350,7 @@ data class EditState(
     val grading: ColorGradingAdjustments = ColorGradingAdjustments(),
     val effects: EffectAdjustments = EffectAdjustments(),
     val detail: DetailAdjustments = DetailAdjustments(),
+    val curves: RgbCurves = RgbCurves(),
     val filter: PhotoFilter = PhotoFilter.Original,
     val rotationQuarterTurns: Int = 0,
     val flipHorizontal: Boolean = false,
@@ -302,13 +372,84 @@ data class EditState(
         tonalRangeMatrix(light.highlights, light.shadows, light.whites, light.blacks),
         temperatureTintMatrix(color.temperature, color.tint),
         saturationVibranceMatrix(color.saturation, color.vibrance),
-        globalGradingMatrix(grading.valueFor(GradingScope.Global)),
+        hslMatrix(),
+        effectsMatrix(),
+        detailMatrix(),
+        gradingMatrix(),
         filter.matrix(),
     )
 
     fun toComposeColorMatrix(): ColorMatrix = ColorMatrix(toColorMatrixValues())
 
     fun toAndroidColorMatrix(): AndroidColorMatrix = AndroidColorMatrix(toColorMatrixValues())
+
+    private fun hslMatrix(): FloatArray {
+        var result = identityMatrix.copyOf()
+        var applied = false
+        for (channel in HslChannel.entries) {
+            val adjustment = hsl.valueFor(channel)
+            if (!adjustment.isEdited) continue
+            if (adjustment.hue != 0f) {
+                result = multiply(result, hueMatrix(adjustment.hue))
+            }
+            result = multiply(result, saturationVibranceMatrix(adjustment.saturation, 0f))
+            result = multiply(result, brightnessContrastMatrix(adjustment.luminance, 0f))
+            applied = true
+        }
+        return if (applied) result else identityMatrix.copyOf()
+    }
+
+    private fun effectsMatrix(): FloatArray {
+        var result = identityMatrix.copyOf()
+        var applied = false
+        if (effects.texture != 0f) {
+            result = multiply(result, brightnessContrastMatrix(effects.texture, 0f))
+            applied = true
+        }
+        if (effects.clarity != 0f) {
+            result = multiply(result, brightnessContrastMatrix(0f, effects.clarity))
+            applied = true
+        }
+        if (effects.dehaze != 0f) {
+            result = multiply(result, brightnessContrastMatrix(effects.dehaze, effects.dehaze))
+            applied = true
+        }
+        return if (applied) result else identityMatrix.copyOf()
+    }
+
+    private fun detailMatrix(): FloatArray {
+        val detailAdjustments = detail
+        if (detailAdjustments.sharpening == 0f && detailAdjustments.noiseReduction == 0f) {
+            return identityMatrix.copyOf()
+        }
+        return identityMatrix.copyOf()
+    }
+
+    private fun gradingMatrix(): FloatArray {
+        val scopes = listOf(
+            GradingScope.Shadows,
+            GradingScope.Midtones,
+            GradingScope.Highlights,
+            GradingScope.Global,
+        )
+        var result = identityMatrix.copyOf()
+        var applied = false
+        for (scope in scopes) {
+            val value = grading.valueFor(scope)
+            if (!value.isEdited) continue
+            result = multiply(result, globalGradingMatrix(value))
+            applied = true
+        }
+        if (!applied) return identityMatrix.copyOf()
+        val blendValue = grading.blend.coerceIn(0f, 1f)
+        if (blendValue >= 1f) return result
+        return FloatArray(20) { index ->
+            val row = index / 5
+            val column = index % 5
+            val diagonal = if (row == column && row < 4) 1f else 0f
+            blendValue * result[index] + (1f - blendValue) * diagonal
+        }
+    }
 }
 
 private val identityMatrix = floatArrayOf(
@@ -317,6 +458,21 @@ private val identityMatrix = floatArrayOf(
     0f, 0f, 1f, 0f, 0f,
     0f, 0f, 0f, 1f, 0f,
 )
+
+private fun hueMatrix(hueDegrees: Float): FloatArray {
+    val theta = (hueDegrees * (kotlin.math.PI / 180f)).toFloat()
+    val cosTheta = kotlin.math.cos(theta)
+    val sinTheta = kotlin.math.sin(theta)
+    val a = 1f / kotlin.math.sqrt(3f)
+    val oneMinusCos = 1f - cosTheta
+    val third = oneMinusCos / 3f
+    return floatArrayOf(
+        cosTheta + third, third - sinTheta * a, third + sinTheta * a, 0f, 0f,
+        third + sinTheta * a, cosTheta + third, third - sinTheta * a, third + sinTheta * a, 0f,
+        third - sinTheta * a, third + sinTheta * a, cosTheta + third, third - sinTheta * a, third + sinTheta * a,
+        0f, 0f, 0f, 1f, 0f,
+    )
+}
 
 private fun exposureMatrix(exposure: Float): FloatArray {
     val factor = 2f.pow(exposure * 1.5f).coerceIn(0.25f, 4f)

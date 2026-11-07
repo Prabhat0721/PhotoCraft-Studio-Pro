@@ -33,6 +33,7 @@ internal fun ColorGradingPanel(
     grading: ColorGradingAdjustments,
     onWheelChange: (GradingScope, Float, Float) -> Unit,
     onLuminanceChange: (GradingScope, Float) -> Unit,
+    onBlendChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -95,6 +96,18 @@ internal fun ColorGradingPanel(
             }
         }
     }
+
+    PhotoCraftSlider(
+        value = grading.blend,
+        onValueChange = onBlendChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PhotoCraftDimensions.screenPadding),
+        label = "Blend",
+        valueLabel = "${(grading.blend * 100f).roundToInt()}%",
+        valueRange = 0f..1f,
+        onValueChangeFinished = onValueChangeFinished,
+    )
 }
 
 @Composable

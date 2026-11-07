@@ -37,7 +37,7 @@ fun PhotoCraftApp() {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.photoCraftColors.background,
         bottomBar = {
             if (showBottomBar) {
                 PhotoCraftBottomBar(
@@ -97,7 +97,7 @@ private fun PhotoCraftBottomBar(
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = colors.gold,
                         selectedTextColor = colors.gold,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        indicatorColor = colors.gold,
                         unselectedIconColor = colors.textSecondary,
                         unselectedTextColor = colors.textSecondary,
                     ),
