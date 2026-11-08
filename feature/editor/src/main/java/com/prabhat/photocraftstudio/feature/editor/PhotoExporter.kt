@@ -12,6 +12,7 @@ import com.prabhat.photocraftstudio.core.designsystem.components.loadPhotoBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 object PhotoExporter {
 
@@ -50,6 +51,8 @@ object PhotoExporter {
                 colorFilter = ColorMatrixColorFilter(edit.toAndroidColorMatrix())
             }
             Canvas(output).drawBitmap(transformed, 0f, 0f, paint)
+            applyVignette(output, edit.effects.vignette)
+            applyGrain(output, edit.effects.grain)
             applyRgbCurves(output, edit.curves)
 
             val stream = context.contentResolver.openOutputStream(outputUri)
@@ -86,6 +89,55 @@ object PhotoExporter {
             val redInt = (finalRed * 255f).roundToInt()
             val greenInt = (finalGreen * 255f).roundToInt()
             val blueInt = (finalBlue * 255f).roundToInt()
+            pixels[index] = (alpha shl 24) or (redInt shl 16) or (greenInt shl 8) or blueInt
+        }
+        target.setPixels(pixels, 0, width, 0, 0, width, height)
+    }
+
+    fun applyVignette(target: Bitmap, strength: Float) {
+        if (kotlin.math.abs(strength) < 0.01f) return
+        val width = target.width
+        val height = target.height
+        val pixels = IntArray(width * height)
+        target.getPixels(pixels, 0, width * 4, 0, 0, width, height)
+        val centerX = (width / 2.0f).toInt()
+        val centerY = (height / 2.0f).toInt()
+        val maxDistance = kotlin.math.sqrt((centerX * centerX + centerY * centerY).toDouble()).toFloat()
+        for (index in pixels.indices) {
+            val argb = pixels[index]
+            val red = ((argb shr 16) and 0xFF) / 255f
+            val green = ((argb shr 8) and 0xFF) / 255f
+            val blue = (argb and 0xFF) / 255f
+            val x = (index % width) / width.toFloat()
+            val y = (index / width) / height.toFloat()
+            val distance = kotlin.math.sqrt((x - 0.5f) * (x - 0.5f) + (y - 0.5f) * (y - 0.5f))
+            val normalized = (distance / (maxDistance + 1f)).coerceIn(0f, 1f)
+            val factor = (1f - strength * normalized * normalized).coerceIn(0.2f, 1f)
+            val alpha = (argb shr 24) and 0xFF
+            val redInt = (red * factor * 255f).roundToInt()
+            val greenInt = (green * factor * 255f).roundToInt()
+            val blueInt = (blue * factor * 255f).roundToInt()
+            pixels[index] = (alpha shl 24) or (redInt shl 16) or (greenInt shl 8) or blueInt
+        }
+        target.setPixels(pixels, 0, width, 0, 0, width, height)
+    }
+
+    fun applyGrain(target: Bitmap, strength: Float) {
+        if (kotlin.math.abs(strength) < 0.01f) return
+        val width = target.width
+        val height = target.height
+        val pixels = IntArray(width * height)
+        target.getPixels(pixels, 0, width * 4, 0, 0, width, height)
+        for (index in pixels.indices) {
+            val argb = pixels[index]
+            val red = ((argb shr 16) and 0xFF).toFloat()
+            val green = ((argb shr 8) and 0xFF).toFloat()
+            val blue = (argb and 0xFF).toFloat()
+            val alpha = (argb shr 24) and 0xFF
+            val noise = (Random.nextFloat() - 0.5f) * strength * 255f
+            val redInt = (red + noise).roundToInt().coerceIn(0, 255)
+            val greenInt = (green + noise * 0.8f).roundToInt().coerceIn(0, 255)
+            val blueInt = (blue + noise * 0.8f).roundToInt().coerceIn(0, 255)
             pixels[index] = (alpha shl 24) or (redInt shl 16) or (greenInt shl 8) or blueInt
         }
         target.setPixels(pixels, 0, width, 0, 0, width, height)

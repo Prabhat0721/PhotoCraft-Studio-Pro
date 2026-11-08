@@ -173,7 +173,11 @@ fun EditorScreen(
                                     bitmap.height,
                                     Matrix().apply { setValues(edit.toColorMatrixValues()) },
                                     true,
-                                ).also { PhotoExporter.applyRgbCurves(it, edit.curves) }
+                                ).also { target ->
+                                    PhotoExporter.applyVignette(target, edit.effects.vignette)
+                                    PhotoExporter.applyGrain(target, edit.effects.grain)
+                                    PhotoExporter.applyRgbCurves(target, edit.curves)
+                                }
                             }
                         }
                         val adjustedImage = adjustedBitmap?.asImageBitmap()

@@ -286,6 +286,9 @@ data class RgbChannelCurve(
         RgbCurvePoint(1f, 1f),
     ),
 ) {
+    val isEdited: Boolean
+        get() = points != listOf(RgbCurvePoint(0f, 0f), RgbCurvePoint(1f, 1f))
+
     fun valueAt(x: Float): Float {
         val sorted = points.sortedBy { it.input }
         val first = sorted.firstOrNull() ?: return 0f
@@ -328,6 +331,9 @@ data class RgbCurves(
     val blue: RgbChannelCurve = RgbChannelCurve(),
     val master: RgbChannelCurve = RgbChannelCurve(),
 ) {
+    val isEdited: Boolean
+        get() = red.isEdited || green.isEdited || blue.isEdited || master.isEdited
+
     fun valueAt(channel: RgbChannel, x: Float): Float = when (channel) {
         RgbChannel.Red -> red.valueAt(x)
         RgbChannel.Green -> green.valueAt(x)
@@ -362,6 +368,7 @@ data class EditState(
             grading.isEdited ||
             effects.isEdited ||
             detail.isEdited ||
+            curves.isEdited ||
             filter != PhotoFilter.Original ||
             rotationQuarterTurns != 0 ||
             flipHorizontal
@@ -422,7 +429,26 @@ data class EditState(
         if (detailAdjustments.sharpening == 0f && detailAdjustments.noiseReduction == 0f) {
             return identityMatrix.copyOf()
         }
-        return identityMatrix.copyOf()
+        var result = identityMatrix.copyOf()
+        if (detailAdjustments.sharpening != 0f) {
+            val strength = detailAdjustments.sharpening.coerceIn(0.05f, 2.5f)
+            result = multiply(result, floatArrayOf(
+                strength * 5f, -strength, -strength, 0f, 0f,
+                strength * 5f, -strength, -strength, 0f, 0f,
+                strength * 5f, -strength, -strength, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f,
+            ))
+        }
+        if (detailAdjustments.noiseReduction != 0f) {
+            val strength = detailAdjustments.noiseReduction.coerceIn(0.05f, 2f)
+            result = multiply(result, floatArrayOf(
+                strength / 3f, strength / 3f, strength / 3f, 0f, strength / 3f,
+                strength / 3f, strength / 3f, strength / 3f, 0f, strength / 3f,
+                strength / 3f, strength / 3f, strength / 3f, 0f, strength / 3f,
+                0f, 0f, 0f, 1f, 0f,
+            ))
+        }
+        return result
     }
 
     private fun gradingMatrix(): FloatArray {
