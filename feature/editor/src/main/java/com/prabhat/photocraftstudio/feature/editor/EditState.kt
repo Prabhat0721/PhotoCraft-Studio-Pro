@@ -349,6 +349,58 @@ data class RgbCurves(
     }
 }
 
+enum class MaskKind(val label: String) {
+    Brush("Brush"),
+    Linear("Linear"),
+    Radial("Radial"),
+}
+
+data class MaskPoint(
+    val x: Float,
+    val y: Float,
+)
+
+data class MaskGeometry(
+    val brushPoints: List<MaskPoint> = emptyList(),
+    val start: MaskPoint? = null,
+    val end: MaskPoint? = null,
+    val center: MaskPoint? = null,
+    val radius: Float = 0.25f,
+) {
+    fun isEmpty(): Boolean = brushPoints.isEmpty() && start == null && end == null && center == null
+}
+
+data class Mask(
+    val id: String,
+    val kind: MaskKind,
+    val enabled: Boolean = true,
+    val inverted: Boolean = false,
+    val erased: Boolean = false,
+    val feather: Float = 0.42f,
+    val flow: Float = 1f,
+    val opacity: Float = 0.72f,
+    val brushSize: Float = 0.08f,
+    val geometry: MaskGeometry = MaskGeometry(),
+    val adjustments: MaskAdjustments = MaskAdjustments(),
+) {
+    fun isEdited(): Boolean = enabled || inverted || erased || feather != 0.42f || flow != 1f ||
+        opacity != 0.72f || brushSize != 0.08f || geometry.isEmpty().not() || adjustments.isEdited
+
+    fun withBrushPoint(point: MaskPoint): Mask = copy(
+        geometry = geometry.copy(brushPoints = geometry.brushPoints + point),
+    )
+}
+
+data class MaskAdjustments(
+    val brightness: Float = 0f,
+    val contrast: Float = 0f,
+    val saturation: Float = 0f,
+    val temperature: Float = 0f,
+) {
+    val isEdited: Boolean
+        get() = brightness != 0f || contrast != 0f || saturation != 0f || temperature != 0f
+}
+
 data class EditState(
     val light: LightAdjustments = LightAdjustments(),
     val color: ColorAdjustments = ColorAdjustments(),
@@ -360,6 +412,8 @@ data class EditState(
     val filter: PhotoFilter = PhotoFilter.Original,
     val rotationQuarterTurns: Int = 0,
     val flipHorizontal: Boolean = false,
+    val masks: List<Mask> = emptyList(),
+    val selectedMaskId: String? = null,
 ) {
     val isEdited: Boolean
         get() = light.isEdited ||
@@ -371,7 +425,10 @@ data class EditState(
             curves.isEdited ||
             filter != PhotoFilter.Original ||
             rotationQuarterTurns != 0 ||
-            flipHorizontal
+            flipHorizontal ||
+            masks.any { it.isEdited() }
+
+    fun selectedMask(): Mask? = masks.firstOrNull { it.enabled && it.isEdited() } ?: masks.firstOrNull()
 
     fun toColorMatrixValues(): FloatArray = chain(
         exposureMatrix(light.exposure),
@@ -639,4 +696,46 @@ private fun multiply(a: FloatArray, b: FloatArray): FloatArray {
         result[row * 5 + 4] = translation
     }
     return result
+}
+
+internal fun maskAlpha(mask: Mask, x: Float, y: Float): Float {
+    val geometry = mask.geometry
+    val radius = mask.brushSize.coerceIn(0.005f, 0.5f)
+    val softEdge = (radius * (1f - mask.feather * 0.6f)).coerceAtLeast(radius * 0.05f)
+    return when (mask.kind) {
+        MaskKind.Brush -> {
+            var alpha = 0f
+            for (point in geometry.brushPoints) {
+                val distance = kotlin.math.sqrt((x - point.x) * (x - point.x) + (y - point.y) * (y - point.y))
+                val edgeAlpha = if (distance <= softEdge) {
+                    1f
+                } else if (distance >= radius) {
+                    0f
+                } else {
+                    (1f - (distance - softEdge) / (radius - softEdge)).coerceIn(0f, 1f)
+                }
+                if (edgeAlpha > alpha) alpha = edgeAlpha
+            }
+            alpha * mask.flow.coerceIn(0f, 1f)
+        }
+
+        MaskKind.Linear -> {
+            val start = geometry.start ?: return 0f
+            val end = geometry.end ?: return 0f
+            val deltaX = end.x - start.x
+            val deltaY = end.y - start.y
+            val lengthSquared = deltaX * deltaX + deltaY * deltaY
+            if (lengthSquared <= 0.0001f) return 0f
+            val position = ((x - start.x) * deltaX + (y - start.y) * deltaY) / lengthSquared
+            val clamped = position.coerceIn(0f, 1f)
+            (1f - clamped) * (1f - mask.feather * 0.35f) * mask.flow.coerceIn(0f, 1f)
+        }
+
+        MaskKind.Radial -> {
+            val center = geometry.center ?: return 0f
+            val distance = kotlin.math.sqrt((x - center.x) * (x - center.x) + (y - center.y) * (y - center.y))
+            val maxDistance = geometry.radius.coerceIn(0.01f, 1f)
+            (1f - (distance / maxDistance).coerceIn(0f, 1f)) * (1f - mask.feather * 0.35f) * mask.flow.coerceIn(0f, 1f)
+        }
+    }
 }

@@ -5,7 +5,9 @@ import com.prabhat.photocraftstudio.core.data.PhotoItem
 import com.prabhat.photocraftstudio.core.data.PhotoRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.asStateFlow
 
 data class EditorUiState(
     val photo: PhotoItem? = null,
@@ -19,6 +21,7 @@ class EditorViewModel : ViewModel() {
     private val editState = MutableStateFlow(EditState())
     private val canUndo = MutableStateFlow(false)
     private val canRedo = MutableStateFlow(false)
+    private val presetStore = MutableStateFlow<List<PhotoFilter>>(listOf(PhotoFilter.Mono, PhotoFilter.Warm, PhotoFilter.Cool, PhotoFilter.Vintage))
 
     private val undoStack = ArrayDeque<EditState>()
     private val redoStack = ArrayDeque<EditState>()
@@ -96,6 +99,93 @@ class EditorViewModel : ViewModel() {
     }
 
     fun setFilter(filter: PhotoFilter) = commit { it.copy(filter = filter) }
+
+    val presets: StateFlow<List<PhotoFilter>> = presetStore.asStateFlow()
+
+    fun savePreset(filter: PhotoFilter) {
+        val current = presetStore.value
+        if (current.any { it == filter }) return
+        presetStore.value = current + filter
+    }
+
+    fun deletePreset(filter: PhotoFilter) {
+        presetStore.value = presetStore.value.filter { it != filter }
+    }
+
+    fun addMask(kind: MaskKind) = commit { edit ->
+        val mask = Mask(
+            id = "mask_${edit.masks.size}_${System.currentTimeMillis()}",
+            kind = kind,
+            enabled = true,
+        )
+        edit.copy(masks = edit.masks + mask, selectedMaskId = mask.id)
+    }
+
+    fun updateMask(id: String, transform: (Mask) -> Mask) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) transform(it) else it })
+    }
+
+    fun duplicateMask(id: String) = commit { edit ->
+        val source = edit.masks.firstOrNull { it.id == id }
+        if (source == null) {
+            edit
+        } else {
+            val copyMask = source.copy(
+                id = "mask_${edit.masks.size}_${System.currentTimeMillis()}",
+                geometry = source.geometry.copy(
+                    brushPoints = source.geometry.brushPoints + source.geometry.brushPoints,
+                ),
+            )
+            edit.copy(masks = edit.masks + copyMask, selectedMaskId = copyMask.id)
+        }
+    }
+
+    fun deleteMask(id: String) = commit { edit ->
+        val remaining = edit.masks.filterNot { it.id == id }
+        edit.copy(masks = remaining, selectedMaskId = remaining.lastOrNull()?.id)
+    }
+
+    fun invertMask(id: String) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) it.copy(inverted = !it.inverted) else it })
+    }
+
+    fun setMaskEnabled(id: String, enabled: Boolean) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) it.copy(enabled = enabled) else it })
+    }
+
+    fun selectMask(id: String?) = commit { edit ->
+        edit.copy(selectedMaskId = id)
+    }
+
+    fun updateMaskBrushSize(id: String, brushSize: Float) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) it.copy(brushSize = brushSize) else it })
+    }
+
+    fun updateMaskFeather(id: String, feather: Float) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) it.copy(feather = feather) else it })
+    }
+
+    fun updateMaskFlow(id: String, flow: Float) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) it.copy(flow = flow) else it })
+    }
+
+    fun updateMaskOpacity(id: String, opacity: Float) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) it.copy(opacity = opacity) else it })
+    }
+
+    fun updateMaskErase(id: String, erased: Boolean) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) it.copy(erased = erased) else it })
+    }
+
+    fun updateMaskAdjustments(
+        id: String,
+        brightness: Float,
+        contrast: Float,
+        saturation: Float,
+        temperature: Float,
+    ) = commit { edit ->
+        edit.copy(masks = edit.masks.map { if (it.id == id) it.copy(adjustments = MaskAdjustments(brightness, contrast, saturation, temperature)) else it })
+    }
 
     fun rotateClockwise() = commit {
         it.copy(rotationQuarterTurns = (it.rotationQuarterTurns + 1) % 4)

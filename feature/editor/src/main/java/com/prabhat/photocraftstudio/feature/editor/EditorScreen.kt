@@ -2,6 +2,8 @@ package com.prabhat.photocraftstudio.feature.editor
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,17 +32,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftAsyncImage
 import com.prabhat.photocraftstudio.core.designsystem.components.PhotoCraftButton
@@ -106,6 +114,8 @@ fun EditorScreen(
     var selectedCategory by rememberSaveable { mutableStateOf(editorCategories.first()) }
     var selectedHslChannelIndex by rememberSaveable { mutableStateOf(0) }
     var comparing by rememberSaveable(photo?.id) { mutableStateOf(false) }
+    var comparisonValue by remember { mutableStateOf(0.5f) }
+    val comparisonViewportSize = remember { mutableStateOf(IntSize(0, 0)) }
     val activeCategory = if (selectedCategory in editorCategories) {
         selectedCategory
     } else {
@@ -153,41 +163,76 @@ fun EditorScreen(
                             scaleY = rotationScale
                         },
                 ) {
+                    val adjustedBitmap = remember(photo, edit) {
+                        previewBitmap?.let { bitmap ->
+                            var target = Bitmap.createBitmap(
+                                bitmap,
+                                0,
+                               0,
+                                bitmap.width,
+                                bitmap.height,
+                                Matrix().apply { setValues(edit.toColorMatrixValues()) },
+                                true,
+                            )
+                            for (mask in edit.masks) {
+                                if (!mask.enabled) continue
+                                val masked = PhotoExporter.applyLocalAdjustments(target, mask, mask.adjustments)
+                                if (masked !== target) {
+                                    target.recycle()
+                                    target = masked
+                                }
+                            }
+                            PhotoExporter.applyVignette(target, edit.effects.vignette)
+                            PhotoExporter.applyGrain(target, edit.effects.grain)
+                            PhotoExporter.applyRgbCurves(target, edit.curves)
+                            target
+                        }
+                    }
+                    val adjustedImage = adjustedBitmap?.asImageBitmap()
+
                     if (comparing) {
-                        PhotoCraftAsyncImage(
-                            model = photo.imageModel,
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onGloballyPositioned { coordinates -> comparisonViewportSize.value = coordinates.size }
+                                .pointerInput(Unit) {
+                                    detectDragGestures { change, _ ->
+                                        val viewport = comparisonViewportSize.value
+                                        val width = viewport.width.coerceAtLeast(1)
+                                        val fraction = (change.position.x / width.toFloat()).coerceIn(0f, 1f)
+                                        comparisonValue = fraction
+                                    }
+                                },
+                        ) {
+                            previewBitmap?.asImageBitmap()?.let { originalImage ->
+                                Image(
+                                    bitmap = originalImage,
+                                    contentDescription = photo.name,
+                                    modifier = Modifier.fillMaxWidth(comparisonValue).fillMaxHeight(),
+                                    contentScale = ContentScale.Fit,
+                                )
+                            }
+                            adjustedImage?.let { editedImage ->
+                                Image(
+                                    bitmap = editedImage,
+                                    contentDescription = photo.name,
+                                    modifier = Modifier.fillMaxWidth((1f - comparisonValue).coerceAtLeast(0.01f)).fillMaxHeight(),
+                                    contentScale = ContentScale.Fit,
+                                )
+                            }
+                        }
+                    } else if (adjustedImage != null) {
+                        Image(
+                            bitmap = adjustedImage,
                             contentDescription = photo.name,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit,
-                            colorFilter = null,
-                            containerColor = Color.Black,
                         )
-                    } else {
-                        val adjustedBitmap = remember(photo, edit) {
-                            previewBitmap?.let { bitmap ->
-                                Bitmap.createBitmap(
-                                    bitmap,
-                                    0,
-                                    0,
-                                    bitmap.width,
-                                    bitmap.height,
-                                    Matrix().apply { setValues(edit.toColorMatrixValues()) },
-                                    true,
-                                ).also { target ->
-                                    PhotoExporter.applyVignette(target, edit.effects.vignette)
-                                    PhotoExporter.applyGrain(target, edit.effects.grain)
-                                    PhotoExporter.applyRgbCurves(target, edit.curves)
-                                }
-                            }
-                        }
-                        val adjustedImage = adjustedBitmap?.asImageBitmap()
-                        if (adjustedImage != null) {
-                            Image(
-                                bitmap = adjustedImage,
-                                contentDescription = photo.name,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit,
-                            )
+                    }
+
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        edit.masks.filter { it.enabled }.forEach { mask ->
+                            drawMask(mask)
                         }
                     }
                 }
@@ -465,6 +510,66 @@ private fun EmptyEditor(onOpenGallery: () -> Unit) {
         Spacer(modifier = Modifier.height(PhotoCraftSpacing.xl))
         PhotoCraftButton(onClick = onOpenGallery) {
             Text(text = "Open Gallery")
+        }
+    }
+}
+
+internal fun DrawScope.drawMask(mask: Mask) {
+    val opacity = mask.opacity.coerceIn(0f, 1f)
+    val minDimension = if (size.width < size.height) size.width else size.height
+    when (mask.kind) {
+        MaskKind.Brush -> {
+            val radius = (mask.brushSize.coerceIn(0.005f, 0.5f) * minDimension).coerceAtLeast(1f)
+            mask.geometry.brushPoints.forEach { point ->
+                val alpha = maskAlpha(mask, point.x, point.y) * opacity
+                val effectiveAlpha = if (mask.inverted) 1f - alpha else alpha
+                if (mask.erased) return@forEach
+                if (effectiveAlpha > 0.02f) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = effectiveAlpha),
+                        radius = radius,
+                        center = Offset(size.width * point.x, size.height * point.y),
+                    )
+                }
+            }
+        }
+
+        MaskKind.Radial -> {
+            val center = mask.geometry.center ?: return
+            val alpha = maskAlpha(mask, center.x, center.y) * opacity
+            val effectiveAlpha = if (mask.inverted) 1f - alpha else alpha
+            if (!mask.erased && effectiveAlpha > 0.02f) {
+                val radius = (mask.geometry.radius * minDimension).coerceIn(
+                    minDimension * 0.05f,
+                    minDimension,
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = effectiveAlpha),
+                    radius = radius,
+                    center = Offset(size.width * center.x, size.height * center.y),
+                )
+            }
+        }
+
+        MaskKind.Linear -> {
+            val start = mask.geometry.start ?: return
+            val end = mask.geometry.end ?: return
+            val startAlpha = maskAlpha(mask, start.x, start.y) * opacity
+            val endAlpha = maskAlpha(mask, end.x, end.y) * opacity
+            val startEffective = if (mask.inverted) 1f - startAlpha else startAlpha
+            val endEffective = if (mask.inverted) 1f - endAlpha else endAlpha
+            if (mask.erased) return
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = startEffective.coerceIn(0f, 1f)),
+                        Color.White.copy(alpha = endEffective.coerceIn(0f, 1f)),
+                    ),
+                    startY = size.height * (0.05f),
+                    endY = size.height * (0.43f),
+                ),
+                size = size,
+            )
         }
     }
 }

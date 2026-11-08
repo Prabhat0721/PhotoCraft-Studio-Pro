@@ -7,10 +7,12 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.prabhat.photocraftstudio.core.data.PhotoRepository
 import com.prabhat.photocraftstudio.feature.editor.CropRoute
 import com.prabhat.photocraftstudio.feature.editor.EditorPresetHandoff
 import com.prabhat.photocraftstudio.feature.editor.EditorRoute
+import com.prabhat.photocraftstudio.feature.editor.EditorViewModel
 import com.prabhat.photocraftstudio.feature.editor.MaskingRoute
 import com.prabhat.photocraftstudio.feature.editor.PortraitRoute
 import com.prabhat.photocraftstudio.feature.editor.PresetsRoute
@@ -22,6 +24,7 @@ import com.prabhat.photocraftstudio.ui.settings.SettingsRoute
 fun PhotoCraftNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
+    viewModel: EditorViewModel = viewModel(),
 ) {
     NavHost(
         navController = navController,
@@ -87,6 +90,7 @@ fun PhotoCraftNavHost(
 
         composable(route = PhotoCraftDestination.EDITOR.route) {
             EditorRoute(
+                viewModel = viewModel,
                 onBack = {
                     if (!navController.popBackStack()) {
                         navController.navigate(
@@ -145,6 +149,7 @@ fun PhotoCraftNavHost(
 
         composable(route = PhotoCraftDestination.MASKING.route) {
             MaskingRoute(
+                viewModel = viewModel,
                 onBack = {
                     if (!navController.popBackStack()) {
                         navController.navigate(PhotoCraftDestination.EDITOR.route) {
