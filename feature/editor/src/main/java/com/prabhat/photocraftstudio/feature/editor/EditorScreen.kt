@@ -182,6 +182,11 @@ fun EditorScreen(
                                     target = masked
                                 }
                             }
+                            val portraitResult = PhotoExporter.applyPortrait(target, edit.portrait)
+                            if (portraitResult !== target) {
+                                target.recycle()
+                                target = portraitResult
+                            }
                             PhotoExporter.applyVignette(target, edit.effects.vignette)
                             PhotoExporter.applyGrain(target, edit.effects.grain)
                             PhotoExporter.applyRgbCurves(target, edit.curves)

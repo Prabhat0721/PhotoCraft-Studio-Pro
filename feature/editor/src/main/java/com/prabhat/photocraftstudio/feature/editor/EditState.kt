@@ -401,6 +401,21 @@ data class MaskAdjustments(
         get() = brightness != 0f || contrast != 0f || saturation != 0f || temperature != 0f
 }
 
+data class PortraitEnhancements(
+    val faceLighting: Boolean = true,
+    val skinSmoothing: Float = 0.32f,
+    val eyeClarity: Float = 0.24f,
+    val backgroundDepth: Float = 0.38f,
+) {
+    val isEdited: Boolean
+        get() = !faceLighting || skinSmoothing != 0.32f || eyeClarity != 0.24f || backgroundDepth != 0.38f
+
+    fun withFaceLighting(enabled: Boolean): PortraitEnhancements = copy(faceLighting = enabled)
+    fun withSkinSmoothing(value: Float): PortraitEnhancements = copy(skinSmoothing = value.coerceIn(0f, 1f))
+    fun withEyeClarity(value: Float): PortraitEnhancements = copy(eyeClarity = value.coerceIn(0f, 1f))
+    fun withBackgroundDepth(value: Float): PortraitEnhancements = copy(backgroundDepth = value.coerceIn(0f, 1f))
+}
+
 data class EditState(
     val light: LightAdjustments = LightAdjustments(),
     val color: ColorAdjustments = ColorAdjustments(),
@@ -412,6 +427,7 @@ data class EditState(
     val filter: PhotoFilter = PhotoFilter.Original,
     val rotationQuarterTurns: Int = 0,
     val flipHorizontal: Boolean = false,
+    val portrait: PortraitEnhancements = PortraitEnhancements(),
     val masks: List<Mask> = emptyList(),
     val selectedMaskId: String? = null,
 ) {
@@ -426,7 +442,8 @@ data class EditState(
             filter != PhotoFilter.Original ||
             rotationQuarterTurns != 0 ||
             flipHorizontal ||
-            masks.any { it.isEdited() }
+            masks.any { it.isEdited() } ||
+            portrait.isEdited
 
     fun selectedMask(): Mask? = masks.firstOrNull { it.enabled && it.isEdited() } ?: masks.firstOrNull()
 

@@ -85,6 +85,8 @@ class EditorViewModel : ViewModel() {
         it.copy(detail = it.detail.withValue(adjustment, value))
     }
 
+    fun updatePortrait(transform: (PortraitEnhancements) -> PortraitEnhancements) = commit { it.copy(portrait = transform(it.portrait)) }
+
     fun applyPendingPreset(photoId: String) {
         val filter = EditorPresetHandoff.consumeFor(photoId) ?: return
         commit { it.copy(filter = filter) }

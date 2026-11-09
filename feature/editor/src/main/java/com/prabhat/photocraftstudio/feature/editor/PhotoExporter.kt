@@ -59,6 +59,11 @@ object PhotoExporter {
                     output = masked
                 }
             }
+            val withPortrait = applyPortrait(output, edit.portrait)
+            if (withPortrait !== output) {
+                output.recycle()
+                output = withPortrait
+            }
             applyVignette(output, edit.effects.vignette)
             applyGrain(output, edit.effects.grain)
             applyRgbCurves(output, edit.curves)
@@ -202,6 +207,80 @@ object PhotoExporter {
         }
         val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         result.setPixels(adjusted, 0, width, 0, 0, width, height)
+        return result
+    }
+
+    fun applyPortrait(source: Bitmap, portrait: PortraitEnhancements): Bitmap {
+        if (!portrait.isEdited) return source
+        val width = source.width
+        val height = source.height
+        if (width <= 0 || height <= 0) return source
+        val pixels = IntArray(width * height)
+        source.getPixels(pixels, 0, width * 4, 0, 0, width, height)
+        val working = if (portrait.skinSmoothing > 0.001f) blurPixels(pixels, width, height, portrait.skinSmoothing) else pixels
+        val faceLighting = portrait.faceLighting
+        val eyeClarity = portrait.eyeClarity
+        val backgroundDepth = portrait.backgroundDepth
+        val contrastValue = eyeClarity * 0.4f
+        val brightnessValue = if (faceLighting) 0.07f else 0f
+        val contrastFactor = (1f + contrastValue * 0.6f).coerceIn(0.35f, 1.8f)
+        val offset = brightnessValue * 90f + 128f * (1f - contrastFactor)
+        val adjusted = IntArray(width * height)
+        for (index in adjusted.indices) {
+            val argb = working[index]
+            val alpha = (argb shr 24) and 0xFF
+            val red = ((argb shr 16) and 0xFF) / 255f
+            val green = ((argb shr 8) and 0xFF) / 255f
+            val blue = (argb and 0xFF) / 255f
+            val redValue = (red * contrastFactor + offset).coerceIn(0f, 1f)
+            val greenValue = (green * contrastFactor + offset).coerceIn(0f, 1f)
+            val blueValue = (blue * contrastFactor + offset).coerceIn(0f, 1f)
+            val redInt = (redValue * 255f).roundToInt()
+            val greenInt = (greenValue * 255f).roundToInt()
+            val blueInt = (blueValue * 255f).roundToInt()
+            adjusted[index] = (alpha shl 24) or (redInt shl 16) or (greenInt shl 8) or blueInt
+        }
+        val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        result.setPixels(adjusted, 0, width, 0, 0, width, height)
+        if (backgroundDepth > 0.01f) {
+            applyVignette(result, backgroundDepth)
+        }
+        return result
+    }
+
+    private fun blurPixels(pixels: IntArray, width: Int, height: Int, strength: Float): IntArray {
+        val radius = (strength * 4f).toInt().coerceAtLeast(1)
+        val result = IntArray(pixels.size)
+        for (y in 0 until height) {
+            val yStart = (y - radius).coerceAtLeast(0)
+            val yEnd = (y + radius + 1).coerceAtMost(height)
+            for (x in 0 until width) {
+                var red = 0f
+                var green = 0f
+                var blue = 0f
+                var alpha = 0f
+                var count = 0
+                val xStart = (x - radius).coerceAtLeast(0)
+                val xEnd = (x + radius + 1).coerceAtMost(width)
+                for (yy in yStart until yEnd) {
+                    val base = yy * width
+                    for (xx in xStart until xEnd) {
+                        val argb = pixels[base + xx]
+                        red += (argb shr 16) and 0xFF
+                        green += (argb shr 8) and 0xFF
+                        blue += (argb and 0xFF)
+                        alpha += (argb shr 24) and 0xFF
+                        count++
+                    }
+                }
+                val index = y * width + x
+                val alphaValue = (alpha / count).toInt()
+                val redValue = (red / count).toInt()
+                val greenValue = (green / count).toInt()
+                val blueValue = (blue / count).toInt()
+                result[index] = (alphaValue shl 24) or (redValue shl 16) or (greenValue shl 8) or blueValue
+            }
+        }
         return result
     }
 }

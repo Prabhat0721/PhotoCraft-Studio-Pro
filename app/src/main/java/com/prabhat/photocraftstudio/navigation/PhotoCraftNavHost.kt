@@ -169,6 +169,7 @@ fun PhotoCraftNavHost(
 
         composable(route = PhotoCraftDestination.PORTRAIT.route) {
             PortraitRoute(
+                viewModel = viewModel,
                 onBack = {
                     if (!navController.popBackStack()) {
                         navController.navigate(PhotoCraftDestination.EDITOR.route) {
